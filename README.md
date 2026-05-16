@@ -6,69 +6,108 @@ A conversational AI agent that helps hiring managers find relevant SHL assessmen
 
 ## What it does
 
-This project is a conversational recommendation system for SHL assessments.
+Instead of manually searching through the SHL catalog, users describe the role they are hiring for in plain language. The system asks follow-up questions when needed and recommends relevant assessments based on the conversation.
 
-Instead of manually searching through the SHL catalog, users can describe the type of role they are hiring for in natural language. The system asks follow-up questions when needed and recommends relevant assessments based on the conversation.
+The agent can:
 
-The chatbot can:
-
-- ask clarification questions for vague hiring requirements
-- recommend relevant SHL assessments
-- update recommendations when requirements change
-- compare assessments using catalog information
+- ask ONE clarifying question when the query is vague
+- recommend 1–10 relevant SHL assessments with real catalog URLs
+- update recommendations when requirements change during the conversation
+- compare assessments using only catalog information
 - refuse unrelated or unsupported requests
+
+---
+
+## Live API
+
+```text
+Base URL: https://sowmyaindurthi-shl-recommender.hf.space
+Health:   https://sowmyaindurthi-shl-recommender.hf.space/health
+Chat:     https://sowmyaindurthi-shl-recommender.hf.space/chat
+Docs:     https://sowmyaindurthi-shl-recommender.hf.space/docs
+```
 
 ---
 
 ## Example Conversations
 
-### Clarification Flow
+### Vague query → clarification
 
 ```text
 User: I need an assessment
-Assistant: Could you tell me the role you are hiring for?
+Bot: What role or skill are you looking to assess?
 ```
 
-### Recommendation Flow
+---
+
+### Specific role → recommendations
 
 ```text
 User: I am hiring a mid-level Java developer
-Assistant: Here are assessments suitable for a mid-level Java developer:
+
+Bot:
 1. Java 8 (New)
 2. Core Java (Advanced Level)
 3. OPQ32r
 ```
 
-### Refinement Flow
+---
+
+### Refinement
 
 ```text
-User: Also include personality assessments
-Assistant: Updated recommendations with personality-based assessments:
-1. Java 8 (New)
-2. OPQ32r
-3. Occupational Personality Questionnaire
+User: Also add personality assessments
+
+Bot:
+Updated recommendations with personality-based assessments included.
 ```
 
-### Comparison Flow
+---
+
+### Comparison
 
 ```text
-User: What is the difference between OPQ and GSA?
-Assistant: OPQ focuses on personality and behavioral preferences, while GSA measures general cognitive ability and reasoning skills.
+User: What is the difference between OPQ and MQ?
+
+Bot:
+OPQ measures workplace behavioral style while MQ focuses on workplace motivation and drivers.
+```
+
+---
+
+### Off-topic refusal
+
+```text
+User: What is the best hiring strategy for startups?
+
+Bot:
+I can only help with SHL assessment recommendations.
 ```
 
 ---
 
 ## Tech Stack
 
-| Component | Technology |
+| Component | Tool | Why it was chosen |
+|---|---|---|
+| Backend API | FastAPI | Lightweight, simple to structure, automatic docs and validation |
+| LLM | Groq (LLaMA 3.3 70B) | Fast responses and free API access |
+| Embeddings | sentence-transformers (`all-MiniLM-L6-v2`) | Local semantic embeddings without API cost |
+| Vector Search | FAISS | Lightweight local vector similarity search |
+| Web Scraping | BeautifulSoup + requests | Simple and easy to debug |
+| Deployment | HuggingFace Spaces (Docker) | Better memory support for PyTorch models |
+
+---
+
+## Why Certain Tools Were Avoided
+
+| Tool | Reason |
 |---|---|
-| Backend API | FastAPI |
-| LLM | Groq / Gemini / OpenAI |
-| Embeddings | sentence-transformers |
-| Vector Search | FAISS |
-| Web Scraping | BeautifulSoup + requests |
-| Data Handling | Pandas |
-| Deployment | Render |
+| Render free tier | Memory limitations for PyTorch models |
+| Gemini free tier | API quota unavailable in India |
+| LangChain | Added unnecessary complexity for this assignment |
+| Redis/PostgreSQL | Not needed because the API is stateless |
+| ChromaDB | FAISS was simpler for this project size |
 
 ---
 
@@ -87,73 +126,59 @@ shl-recommender/
 │
 ├── data/
 │   ├── scraper.py
-│   ├── catalog.json
-│   └── faiss_index/
+│   ├── fix_descriptions.py
+│   ├── build_index.py
+│   └── catalog.json
 │
-├── tests/
-│   └── test_conversations.py
-│
-├── .env
-├── .env.example
+├── startup.py
+├── Dockerfile
 ├── requirements.txt
-├── runtime.txt
 └── README.md
 ```
 
 ---
 
-## System Workflow
+## How it works
 
-### 1. Catalog Collection
+### 1. Data Collection
 
-The SHL product catalog is scraped using BeautifulSoup and requests. Relevant assessment information is extracted and stored in a structured JSON format.
-
-Collected fields include:
-
-- assessment name
-- URL
-- description
-- test type
-- skills
-- duration
-- remote testing support
-- adaptive support
+The scraper visits the SHL catalog pages and extracts assessment names, URLs, descriptions, and metadata. The processed catalog is stored locally as `catalog.json`.
 
 ---
 
 ### 2. Embedding Generation
 
-Assessment descriptions and metadata are converted into semantic embeddings using the `all-MiniLM-L6-v2` sentence transformer model.
+Each assessment's name, description, and metadata are combined into a single text string and converted into embeddings using the `all-MiniLM-L6-v2` model.
 
 ---
 
 ### 3. Vector Search
 
-FAISS is used to store embeddings and retrieve semantically relevant assessments based on the user conversation.
+When a user sends a message, the conversation is embedded and FAISS retrieves the most semantically relevant assessments from the catalog.
 
 ---
 
-### 4. Conversational Logic
+### 4. Conversation Logic
 
-The chatbot first checks whether the user has provided enough information. If the query is too broad, it asks follow-up questions before recommending assessments.
+The chatbot first checks whether the user has provided enough information. If the request is too broad, it asks a clarification question before recommending assessments.
 
 The system also supports:
 
 - recommendation refinement
 - assessment comparison
-- refusal of unsupported queries
-
-The API is stateless, so every request contains the full conversation history.
+- refusal handling
 
 ---
 
-## API Endpoints
+### 5. Stateless API Design
+
+Every `/chat` request contains the full conversation history. The backend does not store sessions or conversation state.
+
+---
+
+## API Reference
 
 ### GET `/health`
-
-Returns service health status.
-
-### Response
 
 ```json
 {
@@ -165,9 +190,7 @@ Returns service health status.
 
 ### POST `/chat`
 
-Receives conversation history and returns the next assistant response.
-
-### Request
+#### Request
 
 ```json
 {
@@ -188,7 +211,9 @@ Receives conversation history and returns the next assistant response.
 }
 ```
 
-### Response
+---
+
+#### Response
 
 ```json
 {
@@ -196,7 +221,7 @@ Receives conversation history and returns the next assistant response.
   "recommendations": [
     {
       "name": "Java 8 (New)",
-      "url": "https://www.shl.com/",
+      "url": "https://www.shl.com/products/product-catalog/view/java-8-new/",
       "test_type": "K"
     }
   ],
@@ -208,8 +233,8 @@ Receives conversation history and returns the next assistant response.
 
 ## Schema Rules
 
-- `recommendations` remains empty while clarifying
-- recommendations contain 1–10 assessments when recommending
+- `recommendations` remains empty while clarifying or refusing
+- recommendations contain 1–10 items when recommending
 - `end_of_conversation` becomes `true` only when the interaction is complete
 
 ---
@@ -219,7 +244,7 @@ Receives conversation history and returns the next assistant response.
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/shl-recommender.git
+git clone https://github.com/Sowmya14aa/shl-recommender.git
 cd shl-recommender
 ```
 
@@ -253,15 +278,29 @@ pip install -r requirements.txt
 
 ### 4. Configure Environment Variables
 
-Create a `.env` file and add:
+Create a `.env` file:
 
 ```env
-GROQ_API_KEY=your_api_key
+GROQ_API_KEY=your_api_key_here
+```
+
+Get a free API key from:
+
+```text
+https://console.groq.com
 ```
 
 ---
 
-### 5. Run the Application
+### 5. Build FAISS Index
+
+```bash
+python startup.py
+```
+
+---
+
+### 6. Run the Application
 
 ```bash
 uvicorn app.main:app --reload
@@ -269,7 +308,7 @@ uvicorn app.main:app --reload
 
 ---
 
-### 6. Open API Docs
+### 7. Open API Docs
 
 ```text
 http://localhost:8000/docs
@@ -281,25 +320,25 @@ http://localhost:8000/docs
 
 ### Why FastAPI?
 
-FastAPI was chosen because it is lightweight, easy to structure, and provides automatic API documentation and schema validation.
+FastAPI is lightweight, beginner-friendly, and provides automatic API documentation and schema validation.
 
 ---
 
 ### Why FAISS?
 
-FAISS allows local semantic search without requiring an external database service. Since the catalog size is relatively small, it is fast and simple to manage.
+FAISS allows fast local semantic search without requiring an external database service.
 
 ---
 
 ### Why Stateless API Design?
 
-The assignment requires stateless APIs. Every request includes the full conversation history, so the backend does not need to store session data.
+The assignment specifically requires stateless APIs. Including the full conversation in every request keeps the backend simple.
 
 ---
 
 ### Why Sentence Transformers?
 
-Sentence Transformers provide good semantic search quality locally without depending on paid embedding APIs.
+Sentence Transformers provide good semantic retrieval quality locally without depending on external embedding APIs.
 
 ---
 
@@ -308,21 +347,7 @@ Sentence Transformers provide good semantic search quality locally without depen
 - recommendations depend on publicly scraped SHL catalog data
 - if the SHL website changes, the catalog may need to be scraped again
 - free LLM APIs can have rate limits
-- very vague conversations may require multiple clarification turns
-
----
-
-## Evaluation Goals
-
-The implementation was built while keeping the assignment evaluation criteria in mind:
-
-- correct schema compliance
-- relevant recommendations
-- clarification handling
-- recommendation refinement
-- assessment comparison
-- refusal behavior
-- hallucination prevention
+- HuggingFace free tier may take time to wake after inactivity
 
 ---
 
@@ -332,7 +357,7 @@ Some improvements that could be added in the future:
 
 - hybrid keyword + semantic retrieval
 - reranking retrieved assessments
-- embedding caching
+- caching embeddings
 - improved metadata extraction
 - frontend UI integration
 
@@ -346,4 +371,4 @@ Built as part of the SHL Labs AI Intern take-home assignment.
 
 ## Author
 
-Built by [Sowmya]
+Built by Sowmya.
